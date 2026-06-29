@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
 
+    # ── Notifications ─────────────────────────────────────────────────────────
+    slack_webhook_url: Optional[str] = None   # https://hooks.slack.com/services/...
+
     # ── Monitored resources (optional filter lists) ───────────────────────────
     monitor_ec2_instance_ids: str = ""
     monitor_rds_cluster_ids: str = ""

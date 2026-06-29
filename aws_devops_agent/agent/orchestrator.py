@@ -20,6 +20,7 @@ from langgraph.graph import END, StateGraph
 from aws_devops_agent.analyzer.engine import analyze_anomaly, detect_anomalies
 from aws_devops_agent.config import get_settings
 from aws_devops_agent.healing.executor import execute_healing_action
+from aws_devops_agent.notifications.slack import notify_anomaly, notify_healing
 from aws_devops_agent.models import (
     AgentEvent,
     Anomaly,
@@ -106,6 +107,8 @@ def node_analyze(state: AgentState) -> AgentState:
             "severity": anomaly.severity.value,
             "title": anomaly.title,
         })
+        # Slack: alert on anomaly detection
+        notify_anomaly(anomaly)
         try:
             summary, action = analyze_anomaly(anomaly)
             summaries.append(summary)
@@ -131,7 +134,9 @@ def node_heal(state: AgentState) -> AgentState:
     log.info("agent.node", node="heal", actions=len(state["healing_actions"]))
     executed: List[HealingAction] = []
 
-    for action in state["healing_actions"]:
+    summaries = state.get("analysis_summaries", [])
+
+    for i, action in enumerate(state["healing_actions"]):
         _emit("heal", {
             "cycle_id": state["cycle_id"],
             "action_id": action.action_id,
@@ -150,6 +155,9 @@ def node_heal(state: AgentState) -> AgentState:
             "status": result.status.value,
             "result": result.result,
         })
+        # Slack: report healing outcome with matching analysis summary (if available)
+        analysis_summary = summaries[i] if i < len(summaries) else None
+        notify_healing(result, analysis_summary)
 
     return {**state, "healing_actions": executed}
 
