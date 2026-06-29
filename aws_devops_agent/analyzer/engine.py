@@ -2,9 +2,15 @@
 Analyzer engine — turns raw ResourceSnapshots into Anomalies and then
 uses the LLM + RAG context to reason about root cause and suggest a
 HealingAction.
+
+Detection modes (ANOMALY_DETECTION_MODE in .env):
+  threshold  — fast rule-based check against _THRESHOLDS dict (original)
+  llm        — sends ALL metrics to LLM; no fixed thresholds required
+  hybrid     — threshold first, then LLM catch-all for uncovered metrics (default)
 """
 from __future__ import annotations
 
+import json
 import uuid
 from typing import List, Optional, Tuple
 
@@ -85,6 +91,140 @@ def detect_anomalies(snapshots: List[ResourceSnapshot]) -> List[Anomaly]:
 
     log.info("analyzer.anomalies_detected", count=len(anomalies))
     return anomalies
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LLM-based anomaly detection (no thresholds)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_DETECTION_SYSTEM = """You are an expert AWS Site Reliability Engineer.
+You will receive a snapshot of metrics for a single AWS resource.
+Your job is to identify ANY anomalous or concerning metrics — without relying on fixed thresholds.
+Consider: sudden spikes, unusually high/low values, metrics that indicate failure states,
+values that are unusual for the resource type, or combinations of metrics that together signal a problem.
+
+For each anomaly you find, respond with a JSON array (may be empty []):
+[
+  {{
+    "metric_name": "<name of the metric>",
+    "severity": "WARNING" or "CRITICAL",
+    "title": "<short description>",
+    "description": "<detailed explanation of why this is anomalous>",
+    "value": <numeric value>
+  }}
+]
+
+RESPOND ONLY with the JSON array. No extra text."""
+
+
+def detect_anomalies_llm(snapshots: List[ResourceSnapshot]) -> List[Anomaly]:
+    """Threshold-free anomaly detection using the LLM to judge all metrics."""
+    llm = _get_llm()
+    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.output_parsers import StrOutputParser
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", _DETECTION_SYSTEM),
+        ("human", (
+            "Resource ID: {resource_id}\n"
+            "Resource Type: {resource_type}\n"
+            "Region: {region}\n"
+            "Resource Context: {raw}\n\n"
+            "Current Metrics:\n{metrics_text}"
+        )),
+    ])
+    chain = prompt | llm | StrOutputParser()
+
+    anomalies: List[Anomaly] = []
+
+    for snap in snapshots:
+        if not snap.metrics:
+            continue
+
+        metrics_text = "\n".join(
+            f"  {m.name}: {m.value:.4f} {m.unit}" for m in snap.metrics
+        )
+
+        try:
+            raw_output = chain.invoke({
+                "resource_id":   snap.resource_id,
+                "resource_type": snap.resource_type,
+                "region":        snap.region,
+                "raw":           str(snap.raw),
+                "metrics_text":  metrics_text,
+            })
+
+            # Strip markdown code fences if present
+            cleaned = raw_output.strip()
+            if cleaned.startswith("```"):
+                cleaned = "\n".join(cleaned.split("\n")[1:])
+                cleaned = cleaned.rsplit("```", 1)[0]
+
+            findings: List[dict] = json.loads(cleaned)
+
+            for f in findings:
+                metric_name = f.get("metric_name", "unknown")
+                severity_str = f.get("severity", "WARNING").upper()
+                severity = Severity.CRITICAL if severity_str == "CRITICAL" else Severity.WARNING
+
+                # Attach the matching MetricPoint if we have it
+                matched = [m for m in snap.metrics if m.name == metric_name]
+
+                anomalies.append(Anomaly(
+                    resource_id=snap.resource_id,
+                    resource_type=snap.resource_type,
+                    severity=severity,
+                    title=f.get("title", f"{snap.resource_type.upper()} {metric_name} anomaly"),
+                    description=f.get("description", ""),
+                    metrics=matched,
+                    context=snap.raw,
+                ))
+
+            log.info(
+                "analyzer.llm_detection",
+                resource_id=snap.resource_id,
+                findings=len(findings),
+            )
+
+        except Exception as exc:
+            log.warning(
+                "analyzer.llm_detection_error",
+                resource_id=snap.resource_id,
+                error=str(exc),
+            )
+
+    log.info("analyzer.llm_anomalies_detected", count=len(anomalies))
+    return anomalies
+
+
+def detect_anomalies_hybrid(snapshots: List[ResourceSnapshot]) -> List[Anomaly]:
+    """
+    Hybrid: threshold check first (fast), then LLM on snapshots whose metrics
+    were NOT covered by any threshold rule — catches uncovered metrics like
+    NetworkIn, ReadLatency, FreeableMemory, Duration.
+    """
+    threshold_anomalies = detect_anomalies(snapshots)
+
+    # Find snapshots that had at least one uncovered metric
+    covered_keys = set(_THRESHOLDS.keys())
+    uncovered_snaps = [
+        snap for snap in snapshots
+        if any((snap.resource_type, m.name) not in covered_keys for m in snap.metrics)
+    ]
+
+    llm_anomalies = detect_anomalies_llm(uncovered_snaps) if uncovered_snaps else []
+
+    # Deduplicate: drop LLM finding if threshold already flagged same resource+metric
+    threshold_keys = {(a.resource_id, m.name) for a in threshold_anomalies for m in a.metrics}
+    deduped_llm = [
+        a for a in llm_anomalies
+        if not any((a.resource_id, m.name) in threshold_keys for m in a.metrics)
+    ]
+
+    all_anomalies = threshold_anomalies + deduped_llm
+    log.info("analyzer.hybrid_anomalies_detected",
+             threshold=len(threshold_anomalies), llm=len(deduped_llm))
+    return all_anomalies
 
 
 # ─────────────────────────────────────────────────────────────────────────────

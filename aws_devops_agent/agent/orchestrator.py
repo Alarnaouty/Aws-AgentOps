@@ -17,7 +17,12 @@ from typing import Any, Dict, List, Optional, TypedDict
 import structlog
 from langgraph.graph import END, StateGraph
 
-from aws_devops_agent.analyzer.engine import analyze_anomaly, detect_anomalies
+from aws_devops_agent.analyzer.engine import (
+    analyze_anomaly,
+    detect_anomalies,
+    detect_anomalies_llm,
+    detect_anomalies_hybrid,
+)
 from aws_devops_agent.config import get_settings
 from aws_devops_agent.healing.executor import execute_healing_action
 from aws_devops_agent.notifications.slack import notify_anomaly, notify_healing
@@ -95,7 +100,17 @@ def node_monitor(state: AgentState) -> AgentState:
 
 def node_analyze(state: AgentState) -> AgentState:
     log.info("agent.node", node="analyze")
-    anomalies = detect_anomalies(state["snapshots"])
+    cfg  = get_settings()
+    mode = cfg.anomaly_detection_mode.lower()
+
+    if mode == "llm":
+        anomalies = detect_anomalies_llm(state["snapshots"])
+    elif mode == "hybrid":
+        anomalies = detect_anomalies_hybrid(state["snapshots"])
+    else:
+        anomalies = detect_anomalies(state["snapshots"])
+
+    log.info("agent.detection_mode", mode=mode, anomalies=len(anomalies))
 
     summaries: List[str] = []
     healing_actions: List[HealingAction] = []

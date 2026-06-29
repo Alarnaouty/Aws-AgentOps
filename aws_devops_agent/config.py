@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     # ── Notifications ─────────────────────────────────────────────────────────
     slack_webhook_url: Optional[str] = None   # https://hooks.slack.com/services/...
 
+    # ── Detection mode ────────────────────────────────────────────────────────
+    anomaly_detection_mode: str = "hybrid"    # threshold | llm | hybrid
+
     # ── Monitored resources (optional filter lists) ───────────────────────────
     monitor_ec2_instance_ids: str = ""
     monitor_rds_cluster_ids: str = ""
