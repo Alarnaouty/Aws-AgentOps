@@ -3,29 +3,34 @@ FastAPI server — REST API + WebSocket live feed.
 
 Endpoints
 ---------
-GET  /health                 — liveness probe
-GET  /api/status             — latest agent status snapshot
-POST /api/knowledge/rebuild  — force-rebuild the vector store
-POST /api/query              — ad-hoc RAG query
-WS   /ws/events              — stream AgentEvent JSON objects to clients
-GET  /                       — built-in HTML dashboard
+GET  /health                       — liveness probe
+GET  /api/status                   — latest agent status snapshot
+POST /api/query                    — RAG question → LLM-synthesized answer
+POST /api/heal                     — trigger a healing action on-demand
+POST /api/knowledge/rebuild        — force-rebuild the vector store
+GET  /openapi-orchestrate.json     — WatsonX Orchestrate skill descriptor
+WS   /ws/events                    — stream AgentEvent JSON objects to clients
+GET  /                             — built-in HTML dashboard
 """
 from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from contextlib import asynccontextmanager
-from typing import List
+from typing import Any, Dict, List, Optional
 
 import structlog
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from aws_devops_agent.agent.orchestrator import get_event_bus, run_agent_loop
-from aws_devops_agent.analyzer.engine import detect_anomalies
+from aws_devops_agent.analyzer.engine import detect_anomalies, _get_llm
 from aws_devops_agent.config import get_settings
+from aws_devops_agent.healing.executor import execute_healing_action
+from aws_devops_agent.models import Anomaly, HealingAction, Severity
 from aws_devops_agent.monitoring.collector import collect_all
 from aws_devops_agent.rag.vector_store import build_vector_store, get_retriever
 
@@ -166,30 +171,287 @@ async def get_status():
         return {"error": str(exc)}
 
 
+# ── Prompt for the synthesized-answer chain ──────────────────────────────────
+_QA_SYSTEM = (
+    "You are an expert AWS DevOps and SRE assistant. "
+    "Use the provided knowledge-base context to answer the user's question concisely and accurately. "
+    "If the context does not contain enough information, say so clearly. "
+    "Do NOT invent facts. Keep the answer under 200 words."
+)
+
+
+def _synthesize_answer(question: str, context: str) -> str:
+    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.output_parsers import StrOutputParser
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", _QA_SYSTEM),
+        ("human", "Context:\n{context}\n\nQuestion: {question}"),
+    ])
+    chain = prompt | _get_llm() | StrOutputParser()
+    return chain.invoke({"context": context, "question": question})
+
+
 class QueryRequest(BaseModel):
     question: str
     k: int = 6
 
 
-@app.post("/api/query")
+@app.post(
+    "/api/query",
+    summary="Ask the AWS knowledge base",
+    description=(
+        "Ask any AWS DevOps / SRE question. "
+        "Retrieves relevant runbook context and returns an LLM-synthesized answer. "
+        "Use this skill in WatsonX Orchestrate to get instant expert guidance."
+    ),
+    tags=["Knowledge Base"],
+)
 async def rag_query(req: QueryRequest):
     loop = asyncio.get_event_loop()
     retriever = await loop.run_in_executor(None, get_retriever, req.k)
-    docs = await loop.run_in_executor(None, retriever.invoke, req.question)
+    docs      = await loop.run_in_executor(None, retriever.invoke, req.question)
+    context   = "\n\n".join(d.page_content for d in docs)
+    answer    = await loop.run_in_executor(None, _synthesize_answer, req.question, context)
     return {
         "question": req.question,
-        "results": [
-            {"content": d.page_content, "source": d.metadata.get("source", "")}
+        "answer":   answer,
+        "sources": [
+            {"content": d.page_content[:300], "source": d.metadata.get("source", "")}
             for d in docs
         ],
     }
 
 
-@app.post("/api/knowledge/rebuild")
+# ─────────────────────────────────────────────────────────────────────────────
+# On-demand healing trigger — for WatsonX Orchestrate "Heal resource" skill
+# ─────────────────────────────────────────────────────────────────────────────
+
+class HealRequest(BaseModel):
+    resource_id:   str
+    resource_type: str
+    action_type:   str
+    parameters:    Dict[str, Any] = {}
+    reasoning:     Optional[str] = "Triggered manually via Orchestrate"
+
+
+@app.post(
+    "/api/heal",
+    summary="Trigger a self-healing action",
+    description=(
+        "Manually trigger one of the 12 registered self-healing actions against an AWS resource. "
+        "Respects DRY_RUN mode. Use this skill in WatsonX Orchestrate to remediate issues on demand."
+    ),
+    tags=["Self-Healing"],
+)
+async def trigger_heal(req: HealRequest):
+    # Build a minimal synthetic anomaly so execute_healing_action has the right shape
+    synthetic_anomaly = Anomaly(
+        resource_id=req.resource_id,
+        resource_type=req.resource_type,
+        severity=Severity.CRITICAL,
+        title=f"Manual heal via Orchestrate: {req.action_type}",
+        description=req.reasoning or "",
+    )
+    action = HealingAction(
+        action_id=str(uuid.uuid4()),
+        anomaly=synthetic_anomaly,
+        action_type=req.action_type,
+        parameters=req.parameters,
+        reasoning=req.reasoning or "",
+    )
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, execute_healing_action, action)
+    return {
+        "action_id":   result.action_id,
+        "action_type": result.action_type,
+        "resource_id": req.resource_id,
+        "status":      result.status.value,
+        "result":      result.result,
+        "dry_run":     get_settings().agent_dry_run,
+    }
+
+
+@app.post(
+    "/api/knowledge/rebuild",
+    summary="Rebuild the knowledge base",
+    description="Force-rebuild the FAISS vector store from all runbook files in knowledge_base/.",
+    tags=["Knowledge Base"],
+)
 async def rebuild_knowledge_base():
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, lambda: build_vector_store(force_rebuild=True))
     return {"message": "Vector store rebuilt successfully"}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WatsonX Orchestrate skill descriptor
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get(
+    "/openapi-orchestrate.json",
+    include_in_schema=False,
+    summary="WatsonX Orchestrate skill descriptor",
+)
+async def orchestrate_openapi():
+    """
+    Returns a trimmed OpenAPI document containing only the three skills
+    that WatsonX Orchestrate should import:
+      - GET  /api/status  — live anomaly snapshot
+      - POST /api/query   — RAG knowledge-base Q&A
+      - POST /api/heal    — on-demand healing action
+    """
+    cfg = get_settings()
+    spec: Dict[str, Any] = {
+        "openapi": "3.0.3",
+        "info": {
+            "title": "AWS DevOps RAG Agent — WatsonX Orchestrate Skills",
+            "version": "2.0.0",
+            "description": (
+                "Three skills for monitoring and remediating AWS infrastructure anomalies. "
+                "Import this spec at: WatsonX Orchestrate → Skills catalog → Add skill → From API."
+            ),
+        },
+        "servers": [{"url": "", "description": "This server"}],
+        "paths": {
+            "/api/status": {
+                "get": {
+                    "operationId": "getAwsStatus",
+                    "summary": "Get live AWS anomaly status",
+                    "description": (
+                        "Scans all monitored AWS resources (EC2, RDS, ECS, Lambda, ALB) "
+                        "and returns any detected anomalies with severity and description."
+                    ),
+                    "tags": ["Monitoring"],
+                    "responses": {
+                        "200": {
+                            "description": "Live resource snapshot",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "resources_scanned": {"type": "integer"},
+                                            "anomalies": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "resource_id":   {"type": "string"},
+                                                        "resource_type": {"type": "string"},
+                                                        "severity":      {"type": "string", "enum": ["OK", "WARNING", "CRITICAL"]},
+                                                        "title":         {"type": "string"},
+                                                        "description":   {"type": "string"},
+                                                    },
+                                                },
+                                            },
+                                            "dry_run": {"type": "boolean"},
+                                            "region":  {"type": "string"},
+                                        },
+                                    }
+                                }
+                            },
+                        }
+                    },
+                }
+            },
+            "/api/query": {
+                "post": {
+                    "operationId": "queryKnowledgeBase",
+                    "summary": "Ask the AWS DevOps knowledge base",
+                    "description": (
+                        "Ask any AWS DevOps or SRE question. "
+                        "Returns an AI-synthesized answer grounded in AWS runbooks."
+                    ),
+                    "tags": ["Knowledge Base"],
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["question"],
+                                    "properties": {
+                                        "question": {"type": "string", "description": "The question to answer"},
+                                        "k":        {"type": "integer", "default": 6, "description": "Number of runbook chunks to retrieve"},
+                                    },
+                                }
+                            }
+                        },
+                    },
+                    "responses": {
+                        "200": {
+                            "description": "AI-synthesized answer",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "question": {"type": "string"},
+                                            "answer":   {"type": "string", "description": "LLM-synthesized answer"},
+                                            "sources":  {"type": "array", "items": {"type": "object"}},
+                                        },
+                                    }
+                                }
+                            },
+                        }
+                    },
+                }
+            },
+            "/api/heal": {
+                "post": {
+                    "operationId": "triggerHealingAction",
+                    "summary": "Trigger a self-healing action on an AWS resource",
+                    "description": (
+                        "Manually execute one of the 12 registered AWS self-healing actions. "
+                        "Actions: restart_ec2_service, stop_start_instance, scale_out_asg, "
+                        "cleanup_disk_ssm, reboot_rds_instance, modify_rds_storage, "
+                        "rollback_lambda_version, update_lambda_timeout, update_lambda_memory, "
+                        "update_ecs_service, scale_ecs_service, deregister_unhealthy_targets."
+                    ),
+                    "tags": ["Self-Healing"],
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["resource_id", "resource_type", "action_type"],
+                                    "properties": {
+                                        "resource_id":   {"type": "string", "description": "AWS resource ID (e.g. i-0abc123)"},
+                                        "resource_type": {"type": "string", "description": "ec2 | rds | ecs | lambda | alb"},
+                                        "action_type":   {"type": "string", "description": "One of the 12 registered action types"},
+                                        "parameters":    {"type": "object", "description": "Action-specific parameters"},
+                                        "reasoning":     {"type": "string", "description": "Why this action is being triggered"},
+                                    },
+                                }
+                            }
+                        },
+                    },
+                    "responses": {
+                        "200": {
+                            "description": "Action execution result",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "action_id":   {"type": "string"},
+                                            "action_type": {"type": "string"},
+                                            "resource_id": {"type": "string"},
+                                            "status":      {"type": "string", "enum": ["SUCCESS", "FAILED", "SKIPPED"]},
+                                            "result":      {"type": "string"},
+                                            "dry_run":     {"type": "boolean"},
+                                        },
+                                    }
+                                }
+                            },
+                        }
+                    },
+                }
+            },
+        },
+    }
+    return JSONResponse(content=spec)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -154,9 +154,88 @@ WATSONX_EMBED_MODEL=ibm/slate-125m-english-rtrvr
 |--------|------|-------------|
 | `GET` | `/health` | Liveness probe |
 | `GET` | `/api/status` | Live resource snapshot + anomalies |
-| `POST` | `/api/query` | Ad-hoc RAG query `{"question": "..."}` |
+| `POST` | `/api/query` | RAG Q&A → LLM-synthesized `answer` field + `sources` |
+| `POST` | `/api/heal` | Trigger any of the 12 self-healing actions on-demand |
 | `POST` | `/api/knowledge/rebuild` | Rebuild FAISS vector store |
+| `GET` | `/openapi-orchestrate.json` | WatsonX Orchestrate skill descriptor |
 | `WS` | `/ws/events` | Stream agent events as JSON |
+
+---
+
+## WatsonX Orchestrate Integration
+
+Import this agent as **3 conversational skills** into WatsonX Orchestrate so users can interact with it via natural language chat.
+
+### Architecture
+
+```
+User chat in Orchestrate
+        │
+        ▼  natural language
+WatsonX Orchestrate (skill router)
+        │
+        ├─► GET  /api/status   →  "Any anomalies in my AWS account?"
+        ├─► POST /api/query    →  "How do I fix high RDS CPU?"
+        └─► POST /api/heal     →  "Restart the web service on i-0e9efcc6"
+        │
+        ▼
+  Your FastAPI Agent (this project)
+        │
+        ▼
+  AWS APIs + LLM (Groq / WatsonX / OpenAI)
+```
+
+### Step 1 — Expose your agent publicly (ngrok)
+
+```bash
+# Terminal 1 — start the agent
+python main.py
+
+# Terminal 2 — expose it with ngrok (free)
+ngrok http 8000
+# → copy the https://xxxx.ngrok.io URL
+```
+
+### Step 2 — Import the skills into Orchestrate
+
+1. Go to **WatsonX Orchestrate → Skills catalog → Add skill → From API**
+2. Paste your skill descriptor URL:
+   ```
+   https://xxxx.ngrok.io/openapi-orchestrate.json
+   ```
+3. Orchestrate will detect **3 skills**:
+
+| Skill | Triggered when user says… |
+|---|---|
+| **Get live AWS anomaly status** | "Check my AWS", "Any issues?", "What's failing?" |
+| **Ask the AWS knowledge base** | "How do I fix…", "What causes…", "Best practice for…" |
+| **Trigger a self-healing action** | "Restart the service on…", "Scale up…", "Reboot RDS…" |
+
+4. Click **Publish** on each skill
+5. Add all 3 skills to your assistant
+
+### Step 3 — Test in chat
+
+```
+You:        "Are there any anomalies in my AWS infrastructure?"
+Orchestrate: Calls GET /api/status
+             → "Found 2 anomalies:
+                • CRITICAL — EC2 i-0e9efcc6253ff7a3e: CPUUtilization is 91.2%
+                • WARNING  — RDS database-1: FreeStorageSpace is 1.8 GB"
+
+You:        "How do I fix high EC2 CPU?"
+Orchestrate: Calls POST /api/query {"question": "How to fix high EC2 CPU?"}
+             → "High EC2 CPU can be caused by runaway processes or traffic spikes.
+                Recommended actions: scale_out_asg to add capacity, or
+                restart_ec2_service to restart the offending service via SSM..."
+
+You:        "Scale out the auto scaling group my-asg by 2"
+Orchestrate: Calls POST /api/heal
+             {"resource_id": "my-asg", "resource_type": "ec2",
+              "action_type": "scale_out_asg",
+              "parameters": {"asg_name": "my-asg", "increment": 2}}
+             → "SUCCESS — ASG my-asg desired capacity set to 5"
+```
 
 ---
 
