@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
 import structlog
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
@@ -292,7 +292,7 @@ async def rebuild_knowledge_base():
     include_in_schema=False,
     summary="WatsonX Orchestrate skill descriptor",
 )
-async def orchestrate_openapi():
+async def orchestrate_openapi(request: Request):
     """
     Returns a trimmed OpenAPI document containing only the three skills
     that WatsonX Orchestrate should import:
@@ -301,6 +301,7 @@ async def orchestrate_openapi():
       - POST /api/heal    — on-demand healing action
     """
     cfg = get_settings()
+    base_url = str(request.base_url).rstrip("/")
     spec: Dict[str, Any] = {
         "openapi": "3.0.3",
         "info": {
@@ -311,7 +312,7 @@ async def orchestrate_openapi():
                 "Import this spec at: WatsonX Orchestrate → Skills catalog → Add skill → From API."
             ),
         },
-        "servers": [{"url": "", "description": "This server"}],
+        "servers": [{"url": base_url, "description": "AWS DevOps RAG Agent"}],
         "paths": {
             "/api/status": {
                 "get": {
