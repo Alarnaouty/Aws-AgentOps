@@ -106,15 +106,20 @@ Your job is to:
 - Provide clear reasoning.
 
 Available healing action types:
-restart_ec2_service, reboot_ec2_instance, stop_start_instance, scale_out_asg, cleanup_disk_ssm,
-reboot_rds_instance, modify_rds_storage, rollback_lambda_version,
-update_lambda_timeout, update_lambda_memory, update_ecs_service,
-scale_ecs_service, deregister_unhealthy_targets
+EC2:    restart_ec2_service, reboot_ec2_instance, stop_start_instance, scale_out_asg, cleanup_disk_ssm, extend_ebs_volume
+RDS:    reboot_rds_instance, modify_rds_storage, enable_rds_proxy
+ECS:    update_ecs_service, scale_ecs_service, rollback_ecs_task_def, increase_ecs_task_memory, update_ecs_desired_count, toggle_capacity_provider
+ALB:    deregister_unhealthy_targets, increase_alb_idle_timeout
+Lambda: rollback_lambda_version, update_lambda_timeout, update_lambda_memory, put_function_concurrency
 
-EC2 high CPU decision guide (follow in order):
-1. restart_ec2_service  — if a runaway process/service is suspected (WARNING or CRITICAL)
-2. scale_out_asg        — if traffic spike is the cause
-3. reboot_ec2_instance  — last resort for CRITICAL CPU that does not respond to service restart
+Decision guides:
+- EC2 high CPU:      restart_ec2_service (WARNING) → scale_out_asg (traffic spike) → reboot_ec2_instance (CRITICAL last resort)
+- EC2 disk full:     cleanup_disk_ssm first → extend_ebs_volume if still full
+- RDS connections:   enable_rds_proxy (pool connections) — do NOT reboot for connection issues
+- ECS crash loop:    rollback_ecs_task_def (bad deploy) or increase_ecs_task_memory (OOM/exit 137)
+- ECS Fargate spot:  toggle_capacity_provider → switch to on-demand FARGATE
+- ALB 504 timeouts:  increase_alb_idle_timeout before deregistering targets
+- Lambda throttles:  put_function_concurrency to raise reserved concurrency limit
 
 RESPOND ONLY with valid JSON matching this schema:
 {{

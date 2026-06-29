@@ -190,24 +190,163 @@ def _deregister_unhealthy_targets(params: Dict) -> str:
     return f"Deregistered {len(unhealthy)} unhealthy target(s) from {tg_arn}"
 
 
+# ── EC2 ───────────────────────────────────────────────────────────────────────
+
+def _extend_ebs_volume(params: Dict) -> str:
+    """Increase an EBS volume size by extra_gb (default 20)."""
+    volume_id = params["volume_id"]
+    extra_gb   = int(params.get("extra_gb", 20))
+    ec2 = _boto("ec2")
+    vol = ec2.describe_volumes(VolumeIds=[volume_id])["Volumes"][0]
+    new_size = vol["Size"] + extra_gb
+    ec2.modify_volume(VolumeId=volume_id, Size=new_size)
+    return f"EBS volume {volume_id} resize to {new_size} GB requested"
+
+
+# ── RDS ───────────────────────────────────────────────────────────────────────
+
+def _enable_rds_proxy(params: Dict) -> str:
+    """Create an RDS Proxy in front of a DB instance to pool connections."""
+    db_id      = params["db_instance_id"]
+    proxy_name = params.get("proxy_name", f"proxy-{db_id}")
+    role_arn   = params["role_arn"]          # IAM role ARN with rds-db:connect
+    subnet_ids = params["subnet_ids"]        # list of subnet IDs
+    rds = _boto("rds")
+    resp = rds.create_db_proxy(
+        DBProxyName=proxy_name,
+        EngineFamily="MYSQL",               # caller should override for POSTGRESQL
+        Auth=[{"AuthScheme": "SECRETS", "IAMAuth": "DISABLED"}],
+        RoleArn=role_arn,
+        VpcSubnetIds=subnet_ids,
+        RequireTLS=True,
+    )
+    return f"RDS Proxy {proxy_name} creation initiated for {db_id}"
+
+
+# ── ECS ───────────────────────────────────────────────────────────────────────
+
+def _rollback_ecs_task_def(params: Dict) -> str:
+    """Re-deploy the previous task definition revision for an ECS service."""
+    cluster = params["cluster"]
+    service = params["service"]
+    ecs = _boto("ecs")
+    svc = ecs.describe_services(cluster=cluster, services=[service])["services"][0]
+    current_arn = svc["taskDefinition"]        # arn:…:family:N
+    family  = current_arn.split("/")[-1].rsplit(":", 1)[0]
+    current_rev = int(current_arn.rsplit(":", 1)[-1])
+    if current_rev <= 1:
+        return f"No previous revision to roll back to for {family}"
+    prev_arn = current_arn.rsplit(":", 1)[0] + f":{current_rev - 1}"
+    ecs.update_service(cluster=cluster, service=service, taskDefinition=prev_arn)
+    return f"ECS service {service} rolled back to task def revision {current_rev - 1}"
+
+
+def _increase_ecs_task_memory(params: Dict) -> str:
+    """Register a new task definition revision with higher memory and deploy it."""
+    cluster      = params["cluster"]
+    service      = params["service"]
+    extra_mb     = int(params.get("extra_mb", 512))
+    ecs = _boto("ecs")
+    svc = ecs.describe_services(cluster=cluster, services=[service])["services"][0]
+    td  = ecs.describe_task_definition(taskDefinition=svc["taskDefinition"])["taskDefinition"]
+    new_mem = str(int(td.get("memory", "1024")) + extra_mb)
+    # Register new revision
+    register_kwargs = {
+        k: td[k] for k in (
+            "family", "containerDefinitions", "networkMode",
+            "requiresCompatibilities", "cpu",
+        ) if k in td
+    }
+    register_kwargs["memory"] = new_mem
+    new_td = ecs.register_task_definition(**register_kwargs)
+    new_arn = new_td["taskDefinition"]["taskDefinitionArn"]
+    ecs.update_service(cluster=cluster, service=service, taskDefinition=new_arn)
+    return f"ECS service {service} redeployed with memory {new_mem} MB"
+
+
+def _update_ecs_desired_count(params: Dict) -> str:
+    """Set ECS service desired count to an explicit safe minimum."""
+    cluster     = params["cluster"]
+    service     = params["service"]
+    desired     = int(params["desired_count"])
+    ecs = _boto("ecs")
+    ecs.update_service(cluster=cluster, service=service, desiredCount=desired)
+    return f"ECS service {service} desired count set to {desired}"
+
+
+def _toggle_capacity_provider(params: Dict) -> str:
+    """Switch an ECS service from FARGATE_SPOT to FARGATE (on-demand)."""
+    cluster = params["cluster"]
+    service = params["service"]
+    ecs = _boto("ecs")
+    ecs.update_service(
+        cluster=cluster,
+        service=service,
+        capacityProviderStrategy=[{"capacityProvider": "FARGATE", "weight": 1, "base": 0}],
+        forceNewDeployment=True,
+    )
+    return f"ECS service {service} switched to FARGATE on-demand capacity"
+
+
+# ── ALB ───────────────────────────────────────────────────────────────────────
+
+def _increase_alb_idle_timeout(params: Dict) -> str:
+    """Increase ALB idle timeout to reduce 504 Gateway Timeout errors."""
+    load_balancer_arn = params["load_balancer_arn"]
+    timeout_seconds   = int(params.get("timeout_seconds", 120))
+    elbv2 = _boto("elbv2")
+    elbv2.modify_load_balancer_attributes(
+        LoadBalancerArn=load_balancer_arn,
+        Attributes=[{"Key": "idle_timeout.timeout_seconds", "Value": str(timeout_seconds)}],
+    )
+    return f"ALB {load_balancer_arn} idle timeout set to {timeout_seconds}s"
+
+
+# ── Lambda ────────────────────────────────────────────────────────────────────
+
+def _put_function_concurrency(params: Dict) -> str:
+    """Set reserved concurrency for a Lambda function to prevent throttling."""
+    function_name = params["function_name"]
+    concurrency   = int(params.get("reserved_concurrency", 100))
+    lmb = _boto("lambda")
+    lmb.put_function_concurrency(
+        FunctionName=function_name,
+        ReservedConcurrentExecutions=concurrency,
+    )
+    return f"Lambda {function_name} reserved concurrency set to {concurrency}"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Action registry
 # ─────────────────────────────────────────────────────────────────────────────
 
 ACTION_REGISTRY = {
-    "restart_ec2_service":        _restart_ec2_service,
-    "reboot_ec2_instance":        _reboot_ec2_instance,
-    "stop_start_instance":        _stop_start_instance,
-    "scale_out_asg":              _scale_out_asg,
-    "cleanup_disk_ssm":           _cleanup_disk_ssm,
-    "reboot_rds_instance":        _reboot_rds_instance,
-    "modify_rds_storage":         _modify_rds_storage,
-    "rollback_lambda_version":    _rollback_lambda_version,
-    "update_lambda_timeout":      _update_lambda_timeout,
-    "update_lambda_memory":       _update_lambda_memory,
-    "update_ecs_service":         _update_ecs_service,
-    "scale_ecs_service":          _scale_ecs_service,
+    # EC2
+    "restart_ec2_service":          _restart_ec2_service,
+    "reboot_ec2_instance":          _reboot_ec2_instance,
+    "stop_start_instance":          _stop_start_instance,
+    "scale_out_asg":                _scale_out_asg,
+    "cleanup_disk_ssm":             _cleanup_disk_ssm,
+    "extend_ebs_volume":            _extend_ebs_volume,
+    # RDS
+    "reboot_rds_instance":          _reboot_rds_instance,
+    "modify_rds_storage":           _modify_rds_storage,
+    "enable_rds_proxy":             _enable_rds_proxy,
+    # ECS
+    "update_ecs_service":           _update_ecs_service,
+    "scale_ecs_service":            _scale_ecs_service,
+    "rollback_ecs_task_def":        _rollback_ecs_task_def,
+    "increase_ecs_task_memory":     _increase_ecs_task_memory,
+    "update_ecs_desired_count":     _update_ecs_desired_count,
+    "toggle_capacity_provider":     _toggle_capacity_provider,
+    # ALB
     "deregister_unhealthy_targets": _deregister_unhealthy_targets,
+    "increase_alb_idle_timeout":    _increase_alb_idle_timeout,
+    # Lambda
+    "rollback_lambda_version":      _rollback_lambda_version,
+    "update_lambda_timeout":        _update_lambda_timeout,
+    "update_lambda_memory":         _update_lambda_memory,
+    "put_function_concurrency":     _put_function_concurrency,
 }
 
 

@@ -284,6 +284,76 @@ async def rebuild_knowledge_base():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Feedback / learning loop
+# ─────────────────────────────────────────────────────────────────────────────
+
+class FeedbackRequest(BaseModel):
+    resource_type:     str
+    resource_id:       str
+    anomaly_title:     str
+    agent_action:      Optional[str] = None          # what the agent tried (may have failed)
+    what_worked:       str                            # the action that actually fixed it
+    root_cause_notes:  Optional[str] = None          # operator's notes on root cause
+    prevent_recurrence: Optional[str] = None         # how to stop it happening again
+
+
+_LEARNED_FIXES_FILE = "knowledge_base/learned_fixes.md"
+_ANCHOR = "<!-- LEARNED_FIXES_START — do not remove this comment, entries are appended below -->"
+
+
+def _append_learned_fix(req: FeedbackRequest) -> None:
+    from datetime import datetime, timezone
+    from pathlib import Path
+    ts   = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    path = Path(_LEARNED_FIXES_FILE)
+
+    entry = f"""
+## [{ts}] {req.resource_type.upper()} — {req.anomaly_title}
+
+- **Resource:** `{req.resource_id}`
+- **Agent tried:** {req.agent_action or "N/A"}
+- **What actually worked:** `{req.what_worked}`
+- **Root cause:** {req.root_cause_notes or "Not provided"}
+- **Prevention:** {req.prevent_recurrence or "Not provided"}
+
+"""
+    text = path.read_text(encoding="utf-8")
+    if _ANCHOR in text:
+        text = text.replace(_ANCHOR, _ANCHOR + entry)
+    else:
+        text += entry
+    path.write_text(text, encoding="utf-8")
+
+
+@app.post(
+    "/api/feedback",
+    summary="Submit operator feedback to teach the agent",
+    description=(
+        "When the agent fails or picks the wrong action, submit what actually worked here. "
+        "The fix is appended to knowledge_base/learned_fixes.md and the FAISS vector store "
+        "is automatically rebuilt so the agent learns for next time."
+    ),
+    tags=["Knowledge Base"],
+)
+async def submit_feedback(req: FeedbackRequest):
+    loop = asyncio.get_event_loop()
+    # 1. Append to learned_fixes.md
+    await loop.run_in_executor(None, _append_learned_fix, req)
+    log.info(
+        "feedback.received",
+        resource_type=req.resource_type,
+        what_worked=req.what_worked,
+    )
+    # 2. Rebuild FAISS so the new entry is immediately searchable
+    await loop.run_in_executor(None, lambda: build_vector_store(force_rebuild=True))
+    return {
+        "message":    "Feedback recorded and knowledge base rebuilt.",
+        "what_worked": req.what_worked,
+        "resource_type": req.resource_type,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # WatsonX Orchestrate skill descriptor
 # ─────────────────────────────────────────────────────────────────────────────
 
