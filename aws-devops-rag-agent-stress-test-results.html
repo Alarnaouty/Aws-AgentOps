@@ -1,0 +1,161 @@
+
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Stress Test Results</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"Segoe UI",system-ui,sans-serif;background:#fff;color:#1f2328;font-size:14px;line-height:1.6;padding:28px}
+h1{font-size:18px;font-weight:700;margin-bottom:4px}
+.sub{color:#57606a;font-size:13px;margin-bottom:28px}
+.badge-pass{display:inline-block;background:#1a7f37;color:#fff;font-size:12px;font-weight:700;padding:3px 10px;border-radius:12px;margin-left:10px;vertical-align:middle}
+section{margin-bottom:32px}
+h2{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:#57606a;margin-bottom:10px;border-bottom:1px solid #e5e7eb;padding-bottom:5px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead tr{background:#f7f8fa}
+th{padding:8px 12px;border:1px solid #e5e7eb;text-align:left;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#57606a}
+td{padding:9px 12px;border:1px solid #e5e7eb;vertical-align:top}
+tr:hover td{background:#f7f8fa}
+.crit{color:#cf222e;font-weight:700}
+.warn{color:#9a6700;font-weight:600}
+.sev-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700}
+.sev-crit{background:#ffebe9;color:#cf222e}
+.sev-warn{background:#fff8c5;color:#9a6700}
+.action{font-family:monospace;font-size:12px;background:#f7f8fa;padding:2px 6px;border-radius:4px;border:1px solid #e5e7eb;color:#0550ae}
+.time{color:#57606a;font-size:12px}
+.pass-row td:first-child{border-left:3px solid #1a7f37}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:24px}
+.kpi{background:#f7f8fa;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px}
+.kpi .label{font-size:11px;color:#57606a;text-transform:uppercase;letter-spacing:.5px}
+.kpi .value{font-size:26px;font-weight:700;margin-top:4px;color:#1f2328}
+.kpi.green .value{color:#1a7f37}
+.reason{font-size:12px;color:#57606a;margin-top:3px;max-width:340px}
+.confidence{font-size:11px;padding:1px 6px;border-radius:8px;font-weight:600}
+.conf-high{background:#dafbe1;color:#1a7f37}
+.conf-med{background:#fff8c5;color:#9a6700}
+footer{margin-top:40px;padding-top:16px;border-top:1px solid #e5e7eb;text-align:center;font-size:12px;color:#57606a}
+</style>
+</head>
+<body>
+<h1>AWS DevOps RAG Agent — Stress Test Results <span class="badge-pass">7 / 7 PASSED</span></h1>
+<p class="sub">Full detect → analyze (LLM+RAG) → heal pipeline · llama-3.3-70b-versatile via Groq · all-MiniLM-L6-v2 embeddings · DRY_RUN=true</p>
+
+<div class="kpi-grid">
+  <div class="kpi green"><div class="label">Scenarios</div><div class="value">7 / 7</div></div>
+  <div class="kpi green"><div class="label">Anomalies Detected</div><div class="value">7 / 7</div></div>
+  <div class="kpi green"><div class="label">Healing Actions</div><div class="value">7 / 7</div></div>
+  <div class="kpi"><div class="label">Total Wall Time</div><div class="value">22.0s</div></div>
+  <div class="kpi"><div class="label">Avg LLM Latency</div><div class="value">~2.4s</div></div>
+</div>
+
+<section>
+  <h2>Scenario Results</h2>
+  <table>
+    <thead>
+      <tr><th>Scenario</th><th>Service</th><th>Severity</th><th>Root Cause</th><th>Healing Action</th><th>Confidence</th><th>Time</th></tr>
+    </thead>
+    <tbody>
+      <tr class="pass-row">
+        <td><strong>EC2 CPU Spike — 94%</strong><div class="reason">CPUUtilization 94% → threshold crit=90%</div></td>
+        <td>EC2</td>
+        <td><span class="sev-badge sev-crit">CRITICAL</span></td>
+        <td>Under-provisioned instance or traffic spike</td>
+        <td><span class="action">scale_out_asg</span></td>
+        <td><span class="confidence conf-med">medium</span></td>
+        <td class="time">14.0s</td>
+      </tr>
+      <tr class="pass-row">
+        <td><strong>EC2 Status Check Failed</strong><div class="reason">StatusCheckFailed_Instance = 1</div></td>
+        <td>EC2</td>
+        <td><span class="sev-badge sev-crit">CRITICAL</span></td>
+        <td>Hardware or configuration issue on host</td>
+        <td><span class="action">stop_start_instance</span></td>
+        <td><span class="confidence conf-high">high</span></td>
+        <td class="time">1.2s</td>
+      </tr>
+      <tr class="pass-row">
+        <td><strong>RDS Storage Critical — 1.2 GB left</strong><div class="reason">FreeStorageSpace 1.2 GB → crit &lt; 2 GB</div></td>
+        <td>RDS</td>
+        <td><span class="sev-badge sev-crit">CRITICAL</span></td>
+        <td>Low available storage space</td>
+        <td><span class="action">modify_rds_storage</span></td>
+        <td><span class="confidence conf-high">high</span></td>
+        <td class="time">1.3s</td>
+      </tr>
+      <tr class="pass-row">
+        <td><strong>RDS Connection Flood — 98 connections</strong><div class="reason">DatabaseConnections 98 → crit &gt; 95</div></td>
+        <td>RDS</td>
+        <td><span class="sev-badge sev-crit">CRITICAL</span></td>
+        <td>Too many database connections</td>
+        <td><span class="action">reboot_rds_instance</span></td>
+        <td><span class="confidence conf-med">medium</span></td>
+        <td class="time">1.5s</td>
+      </tr>
+      <tr class="pass-row">
+        <td><strong>Lambda Error Storm — 35 errors</strong><div class="reason">Errors=35, Throttles=12 → both CRITICAL</div></td>
+        <td>Lambda</td>
+        <td><span class="sev-badge sev-crit">CRITICAL</span></td>
+        <td>Unhandled exception or bad deploy</td>
+        <td><span class="action">rollback_lambda_version</span></td>
+        <td><span class="confidence conf-high">high</span></td>
+        <td class="time">1.3s</td>
+      </tr>
+      <tr class="pass-row">
+        <td><strong>ALB 5xx Surge — 45 server errors</strong><div class="reason">5XX=45, ResponseTime=4.2s, UnhealthyHosts=2</div></td>
+        <td>ALB</td>
+        <td><span class="sev-badge sev-crit">CRITICAL</span></td>
+        <td>Unhealthy targets (502/504)</td>
+        <td><span class="action">deregister_unhealthy_targets</span></td>
+        <td><span class="confidence conf-high">high</span></td>
+        <td class="time">1.3s</td>
+      </tr>
+      <tr class="pass-row">
+        <td><strong>ECS Memory Exhaustion — 97%</strong><div class="reason">MemoryUtilization 97% → crit &gt; 95%</div></td>
+        <td>ECS</td>
+        <td><span class="sev-badge sev-crit">CRITICAL</span></td>
+        <td>Insufficient memory allocation</td>
+        <td><span class="action">scale_ecs_service</span></td>
+        <td><span class="confidence conf-high">high</span></td>
+        <td class="time">1.3s</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Pipeline Verification</h2>
+  <table>
+    <thead><tr><th>Stage</th><th>Result</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Rule-based anomaly detection</td><td style="color:#1a7f37;font-weight:700">✓ PASS</td><td>All 7 snapshots crossed CRITICAL threshold correctly</td></tr>
+      <tr><td>RAG retrieval (FAISS + MiniLM)</td><td style="color:#1a7f37;font-weight:700">✓ PASS</td><td>Relevant runbook chunks retrieved for each anomaly type</td></tr>
+      <tr><td>LLM root-cause analysis (Groq)</td><td style="color:#1a7f37;font-weight:700">✓ PASS</td><td>Structured JSON returned for all 7; 5/7 high confidence</td></tr>
+      <tr><td>Healing action selection</td><td style="color:#1a7f37;font-weight:700">✓ PASS</td><td>Correct action chosen from registry for every scenario</td></tr>
+      <tr><td>DRY_RUN safety guard</td><td style="color:#1a7f37;font-weight:700">✓ PASS</td><td>No real AWS changes made — all actions logged only</td></tr>
+      <tr><td>WebSocket event streaming</td><td style="color:#1a7f37;font-weight:700">✓ PASS</td><td>WS connected; events stream live to dashboard</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Note on EC2 SSM Access</h2>
+  <table>
+    <thead><tr><th>Finding</th><th>Impact</th><th>Resolution</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Instance <code>i-0e9efcc6253ff7a3e</code> is not SSM-managed</td>
+        <td>Cannot execute <code>restart_ec2_service</code> or <code>cleanup_disk_ssm</code> healing actions on this instance</td>
+        <td>Attach <strong>AmazonSSMManagedInstanceCore</strong> IAM policy to the instance role, then install the SSM agent</td>
+      </tr>
+      <tr>
+        <td>AWS blocks <code>put_metric_data</code> on <code>AWS/</code> namespace</td>
+        <td>Cannot inject synthetic CloudWatch metrics for real-time agent triggering</td>
+        <td>Use custom namespace (e.g. <code>Custom/StressTest</code>) and add custom threshold rules in the agent</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<footer>Made with IBM Bob</footer>
+</body>
+</html>
