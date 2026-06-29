@@ -90,6 +90,14 @@ def _cleanup_disk_ssm(params: Dict) -> str:
     return f"Disk cleanup SSM command sent: {cmd_id}"
 
 
+def _reboot_ec2_instance(params: Dict) -> str:
+    """Reboot an EC2 instance — last resort for persistent high CPU or unresponsive instance."""
+    instance_id = params["instance_id"]
+    ec2 = _boto("ec2")
+    ec2.reboot_instances(InstanceIds=[instance_id])
+    return f"EC2 instance {instance_id} reboot initiated"
+
+
 def _reboot_rds_instance(params: Dict) -> str:
     db_id = params["db_instance_id"]
     rds = _boto("rds")
@@ -188,6 +196,7 @@ def _deregister_unhealthy_targets(params: Dict) -> str:
 
 ACTION_REGISTRY = {
     "restart_ec2_service":        _restart_ec2_service,
+    "reboot_ec2_instance":        _reboot_ec2_instance,
     "stop_start_instance":        _stop_start_instance,
     "scale_out_asg":              _scale_out_asg,
     "cleanup_disk_ssm":           _cleanup_disk_ssm,

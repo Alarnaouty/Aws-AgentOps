@@ -17,9 +17,9 @@
 5. Create CloudWatch alarm if not already present
 
 **Healing actions available:**
-- `restart_ec2_service` — restarts the named systemd service via SSM
-- `scale_out_asg` — increases desired capacity of attached ASG by 1
-- `reboot_instance` — last resort; only if health check fails
+- `restart_ec2_service` — restarts the named systemd service via SSM (first resort)
+- `scale_out_asg` — increases desired capacity of attached ASG by 1 (traffic spike)
+- `reboot_ec2_instance` — reboots the EC2 instance via EC2 API (last resort, CRITICAL only)
 
 ---
 

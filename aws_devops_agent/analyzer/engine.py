@@ -106,10 +106,15 @@ Your job is to:
 - Provide clear reasoning.
 
 Available healing action types:
-restart_ec2_service, stop_start_instance, scale_out_asg, cleanup_disk_ssm,
+restart_ec2_service, reboot_ec2_instance, stop_start_instance, scale_out_asg, cleanup_disk_ssm,
 reboot_rds_instance, modify_rds_storage, rollback_lambda_version,
 update_lambda_timeout, update_lambda_memory, update_ecs_service,
 scale_ecs_service, deregister_unhealthy_targets
+
+EC2 high CPU decision guide (follow in order):
+1. restart_ec2_service  — if a runaway process/service is suspected (WARNING or CRITICAL)
+2. scale_out_asg        — if traffic spike is the cause
+3. reboot_ec2_instance  — last resort for CRITICAL CPU that does not respond to service restart
 
 RESPOND ONLY with valid JSON matching this schema:
 {{
