@@ -117,9 +117,9 @@ async def lifespan(app: FastAPI):
 # ─────────────────────────────────────────────────────────────────────────────
 
 app = FastAPI(
-    title="AWS DevOps RAG Agent",
-    version="1.0.0",
-    description="Monitoring · Analyzing · Self-Healing · Acting",
+    title="AWS DevOps RAG Agent — WatsonX Edition",
+    version="2.0.0",
+    description="Monitoring · Analyzing · Self-Healing · Acting — Powered by IBM WatsonX",
     lifespan=lifespan,
 )
 
@@ -217,12 +217,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>AWS DevOps RAG Agent</title>
+<title>AWS DevOps RAG Agent — WatsonX</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,"Segoe UI",system-ui,sans-serif;background:#0d1117;color:#c9d1d9;font-size:14px}
-  header{background:#161b22;border-bottom:1px solid #30363d;padding:14px 24px;display:flex;align-items:center;gap:12px}
+  header{background:#1a1f2e;border-bottom:2px solid #4a90d9;padding:14px 24px;display:flex;align-items:center;gap:12px}
   header h1{font-size:18px;font-weight:600}
+  .ibm-tag{font-size:10px;font-weight:700;color:#4a90d9;border:1px solid #4a90d9;padding:1px 7px;border-radius:3px;letter-spacing:.5px;margin-left:4px}
   .badge{background:#238636;color:#fff;font-size:11px;padding:2px 10px;border-radius:12px;font-weight:600}
   .badge.offline{background:#484f58}
   .badge.warn{background:#9e6a03}
@@ -233,18 +234,19 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .card .value{font-size:28px;font-weight:700;margin-top:6px}
   #log{background:#161b22;border:1px solid #30363d;border-radius:8px;height:480px;overflow-y:auto;padding:12px;font-family:monospace;font-size:12px}
   .ev{padding:5px 0;border-bottom:1px solid #21262d;line-height:1.5}
-  .ts{color:#58a6ff;margin-right:8px}
+  .ts{color:#4a90d9;margin-right:8px}
   .type{font-weight:700;margin-right:8px;min-width:60px;display:inline-block}
   .type-monitor{color:#3fb950}.type-analyze{color:#d29922}
-  .type-heal{color:#58a6ff}.type-error{color:#f85149}
+  .type-heal{color:#4a90d9}.type-error{color:#f85149}
   .type-info{color:#8b949e}.type-ping{color:#21262d}
   h2{font-size:13px;margin-bottom:10px;color:#8b949e;text-transform:uppercase;letter-spacing:.4px}
   .status-bar{font-size:12px;color:#57606a;margin-bottom:16px}
+  .provider-pill{font-size:10px;background:#1a3a5c;color:#4a90d9;border-radius:4px;padding:2px 8px;margin-left:8px}
 </style>
 </head>
 <body>
 <header>
-  <h1>&#9889; AWS DevOps RAG Agent</h1>
+  <h1>&#9889; AWS DevOps RAG Agent <span class="ibm-tag">IBM WATSONX</span></h1>
   <span class="badge offline" id="conn-badge">CONNECTING</span>
   <span style="margin-left:auto;font-size:12px;color:#8b949e" id="last-seen"></span>
 </header>

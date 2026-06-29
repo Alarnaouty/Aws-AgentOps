@@ -37,6 +37,16 @@ def _get_embeddings():
         from langchain_aws import BedrockEmbeddings
         _embeddings = BedrockEmbeddings(region_name=cfg.aws_default_region)
 
+    elif cfg.llm_provider == "watsonx" or cfg.embed_provider == "watsonx":
+        from langchain_ibm import WatsonxEmbeddings
+        log.info("embeddings.watsonx", model=cfg.watsonx_embed_model)
+        _embeddings = WatsonxEmbeddings(
+            model_id=cfg.watsonx_embed_model,
+            url=cfg.watsonx_url,
+            apikey=cfg.watsonx_api_key,
+            project_id=cfg.watsonx_project_id,
+        )
+
     elif cfg.llm_provider == "groq" or cfg.embed_provider == "huggingface":
         # HuggingFaceEmbeddings runs sentence-transformers locally — free, no API key.
         # Created ONCE here; all threads reuse the same instance (it is thread-safe for inference).

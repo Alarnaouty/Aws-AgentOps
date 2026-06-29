@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     aws_default_region: str = "us-east-1"
 
     # ── LLM ──────────────────────────────────────────────────────────────────
-    llm_provider: str = "openai"          # openai | bedrock | groq | ollama
+    llm_provider: str = "openai"          # openai | bedrock | groq | ollama | watsonx
     openai_api_key: Optional[str] = None
     llm_model: str = "gpt-4o"
     bedrock_model_id: str = "anthropic.claude-3-5-sonnet-20240620-v1:0"
@@ -36,9 +36,16 @@ class Settings(BaseSettings):
     ollama_embed_model: str = "nomic-embed-text"   # embedding model for RAG
 
     # HuggingFace (free embeddings — works alongside Groq)
-    embed_provider: str = "huggingface"            # huggingface | openai | ollama | bedrock
+    embed_provider: str = "huggingface"            # huggingface | openai | ollama | bedrock | watsonx
     huggingface_api_key: Optional[str] = None      # hf.co → Settings → Access Tokens (read)
     hf_embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+
+    # IBM WatsonX
+    watsonx_api_key: Optional[str] = None          # IBM Cloud API key
+    watsonx_project_id: Optional[str] = None       # WatsonX.ai project ID
+    watsonx_url: str = "https://us-south.ml.cloud.ibm.com"
+    watsonx_llm_model: str = "ibm/granite-3-8b-instruct"   # or meta-llama/llama-3-1-70b-instruct
+    watsonx_embed_model: str = "ibm/slate-125m-english-rtrvr"
 
     # ── Agent behaviour ───────────────────────────────────────────────────────
     agent_poll_interval_seconds: int = 60

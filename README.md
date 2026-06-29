@@ -104,13 +104,47 @@ Open **http://localhost:8000** to see the live dashboard.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AWS_DEFAULT_REGION` | `us-east-1` | AWS region to monitor |
-| `LLM_PROVIDER` | `openai` | `openai` or `bedrock` |
+| `LLM_PROVIDER` | `openai` | `openai` \| `bedrock` \| `groq` \| `ollama` \| `watsonx` |
 | `LLM_MODEL` | `gpt-4o` | OpenAI model name |
 | `AGENT_POLL_INTERVAL_SECONDS` | `60` | How often to run a monitoring cycle |
 | `AGENT_MAX_HEALING_RETRIES` | `3` | Max retries per healing action |
 | `AGENT_DRY_RUN` | `false` | If `true`, log actions without executing |
 | `VECTOR_STORE_PATH` | `./data/vector_store` | Path to FAISS index |
 | `KNOWLEDGE_BASE_PATH` | `./knowledge_base` | Path to runbook `.md` files |
+
+### IBM WatsonX Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WATSONX_API_KEY` | — | IBM Cloud API key (create at cloud.ibm.com → API keys) |
+| `WATSONX_PROJECT_ID` | — | WatsonX.ai project ID (from your project settings) |
+| `WATSONX_URL` | `https://us-south.ml.cloud.ibm.com` | WatsonX regional endpoint |
+| `WATSONX_LLM_MODEL` | `ibm/granite-3-8b-instruct` | Any deployed WatsonX foundation model |
+| `WATSONX_EMBED_MODEL` | `ibm/slate-125m-english-rtrvr` | Embedding model for RAG |
+
+**Quick WatsonX setup:**
+```bash
+# 1. Get your IBM Cloud API key: https://cloud.ibm.com/iam/apikeys
+# 2. Open WatsonX.ai: https://dataplatform.cloud.ibm.com
+# 3. Create a project and copy its ID from Project → Manage → General
+# 4. Set in .env:
+LLM_PROVIDER=watsonx
+WATSONX_API_KEY=your_ibm_cloud_api_key
+WATSONX_PROJECT_ID=your_project_id
+WATSONX_URL=https://us-south.ml.cloud.ibm.com   # eu-de or jp-tok also available
+WATSONX_LLM_MODEL=ibm/granite-3-8b-instruct
+WATSONX_EMBED_MODEL=ibm/slate-125m-english-rtrvr
+```
+
+**Available WatsonX LLM models** (set `WATSONX_LLM_MODEL`):
+
+| Model ID | Description |
+|---|---|
+| `ibm/granite-3-8b-instruct` | IBM Granite 3 — fast, instruction-tuned (default) |
+| `ibm/granite-3-2b-instruct` | IBM Granite 3 — lightweight |
+| `meta-llama/llama-3-1-70b-instruct` | Meta Llama 3.1 70B |
+| `meta-llama/llama-3-1-8b-instruct` | Meta Llama 3.1 8B — fast |
+| `mistralai/mistral-large` | Mistral Large |
 
 ---
 

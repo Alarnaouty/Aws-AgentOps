@@ -166,6 +166,22 @@ def _get_llm():
             format="json",          # instructs Ollama to always return JSON
         )
 
+    if cfg.llm_provider == "watsonx":
+        from langchain_ibm import ChatWatsonx
+        from ibm_watsonx_ai.metanames import GenTextParamsMetaNames as GenParams
+        return ChatWatsonx(
+            model_id=cfg.watsonx_llm_model,
+            url=cfg.watsonx_url,
+            apikey=cfg.watsonx_api_key,
+            project_id=cfg.watsonx_project_id,
+            params={
+                GenParams.DECODING_METHOD: "greedy",
+                GenParams.MAX_NEW_TOKENS: 1024,
+                GenParams.MIN_NEW_TOKENS: 1,
+                GenParams.TEMPERATURE: 0,
+            },
+        )
+
     # default: openai
     from langchain_openai import ChatOpenAI
     return ChatOpenAI(
