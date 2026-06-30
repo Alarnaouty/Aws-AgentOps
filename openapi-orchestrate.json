@@ -1,0 +1,222 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "AWS DevOps RAG Agent \u2014 WatsonX Orchestrate Skills",
+    "version": "2.0.0",
+    "description": "Three skills for monitoring and remediating AWS infrastructure anomalies. Import this spec at: WatsonX Orchestrate \u2192 Skills catalog \u2192 Add skill \u2192 From API."
+  },
+  "servers": [
+    {
+      "url": "----------------------",
+      "description": "AWS DevOps RAG Agent"
+    }
+  ],
+  "paths": {
+    "/api/status": {
+      "get": {
+        "operationId": "getAwsStatus",
+        "summary": "Get live AWS anomaly status",
+        "description": "Scans all monitored AWS resources (EC2, RDS, ECS, Lambda, ALB) and returns any detected anomalies with severity and description.",
+        "tags": [
+          "Monitoring"
+        ],
+        "responses": {
+          "200": {
+            "description": "Live resource snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "resources_scanned": {
+                      "type": "integer"
+                    },
+                    "anomalies": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "resource_id": {
+                            "type": "string"
+                          },
+                          "resource_type": {
+                            "type": "string"
+                          },
+                          "severity": {
+                            "type": "string",
+                            "enum": [
+                              "OK",
+                              "WARNING",
+                              "CRITICAL"
+                            ]
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "dry_run": {
+                      "type": "boolean"
+                    },
+                    "region": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/query": {
+      "post": {
+        "operationId": "queryKnowledgeBase",
+        "summary": "Ask the AWS DevOps knowledge base",
+        "description": "Ask any AWS DevOps or SRE question. Returns an AI-synthesized answer grounded in AWS runbooks.",
+        "tags": [
+          "Knowledge Base"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "question"
+                ],
+                "properties": {
+                  "question": {
+                    "type": "string",
+                    "description": "The question to answer"
+                  },
+                  "k": {
+                    "type": "integer",
+                    "default": 6,
+                    "description": "Number of runbook chunks to retrieve"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "AI-synthesized answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "question": {
+                      "type": "string"
+                    },
+                    "answer": {
+                      "type": "string",
+                      "description": "LLM-synthesized answer"
+                    },
+                    "sources": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/heal": {
+      "post": {
+        "operationId": "triggerHealingAction",
+        "summary": "Trigger a self-healing action on an AWS resource",
+        "description": "Manually execute one of the 12 registered AWS self-healing actions. Actions: restart_ec2_service, stop_start_instance, scale_out_asg, cleanup_disk_ssm, reboot_rds_instance, modify_rds_storage, rollback_lambda_version, update_lambda_timeout, update_lambda_memory, update_ecs_service, scale_ecs_service, deregister_unhealthy_targets.",
+        "tags": [
+          "Self-Healing"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "resource_id",
+                  "resource_type",
+                  "action_type"
+                ],
+                "properties": {
+                  "resource_id": {
+                    "type": "string",
+                    "description": "AWS resource ID (e.g. i-0abc123)"
+                  },
+                  "resource_type": {
+                    "type": "string",
+                    "description": "ec2 | rds | ecs | lambda | alb"
+                  },
+                  "action_type": {
+                    "type": "string",
+                    "description": "One of the 12 registered action types"
+                  },
+                  "parameters": {
+                    "type": "object",
+                    "description": "Action-specific parameters"
+                  },
+                  "reasoning": {
+                    "type": "string",
+                    "description": "Why this action is being triggered"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Action execution result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "action_id": {
+                      "type": "string"
+                    },
+                    "action_type": {
+                      "type": "string"
+                    },
+                    "resource_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "SUCCESS",
+                        "FAILED",
+                        "SKIPPED"
+                      ]
+                    },
+                    "result": {
+                      "type": "string"
+                    },
+                    "dry_run": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
